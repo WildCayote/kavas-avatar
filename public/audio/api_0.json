@@ -1,0 +1,31 @@
+{
+  "metadata": {
+    "soundFile": "C:\\Users\\VICTUS 16\\Downloads\\Rhubarb-Lip-Sync-1.13.0-Windows\\Rhubarb-Lip-Sync-1.13.0-Windows\\api_0.wav",
+    "duration": 3.0
+  },
+  "mouthCues": [
+    { "start": 0.0, "end": 0.02, "value": "X" },
+    { "start": 0.02, "end": 0.1, "value": "A" },
+    { "start": 0.1, "end": 0.31, "value": "B" },
+    { "start": 0.31, "end": 0.39, "value": "A" },
+    { "start": 0.39, "end": 0.46, "value": "C" },
+    { "start": 0.46, "end": 0.53, "value": "G" },
+    { "start": 0.53, "end": 0.6, "value": "B" },
+    { "start": 0.6, "end": 0.74, "value": "C" },
+    { "start": 0.74, "end": 0.81, "value": "B" },
+    { "start": 0.81, "end": 0.88, "value": "E" },
+    { "start": 0.88, "end": 0.95, "value": "F" },
+    { "start": 0.95, "end": 1.09, "value": "C" },
+    { "start": 1.09, "end": 1.23, "value": "F" },
+    { "start": 1.23, "end": 1.42, "value": "C" },
+    { "start": 1.42, "end": 1.47, "value": "E" },
+    { "start": 1.47, "end": 1.65, "value": "F" },
+    { "start": 1.65, "end": 1.72, "value": "B" },
+    { "start": 1.72, "end": 1.79, "value": "C" },
+    { "start": 1.79, "end": 1.87, "value": "A" },
+    { "start": 1.87, "end": 2.12, "value": "B" },
+    { "start": 2.12, "end": 2.19, "value": "C" },
+    { "start": 2.19, "end": 2.82, "value": "B" },
+    { "start": 2.82, "end": 3.0, "value": "X" }
+  ]
+}
