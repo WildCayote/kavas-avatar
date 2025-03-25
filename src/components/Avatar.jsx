@@ -4,11 +4,11 @@ Command: npx gltfjsx@6.5.3 public/models/avatar.glb
 */
 
 import React, { useEffect, useRef, useState } from "react";
-import { useFrame, useGraph } from "@react-three/fiber";
+import { useFrame, useGraph, useThree } from "@react-three/fiber";
 import { useAnimations, useFBX, useGLTF } from "@react-three/drei";
 import { SkeletonUtils } from "three-stdlib";
 import * as THREE from "three";
-import visemeQueue from "../../public/audio/api_0.json";
+import visemeQueue from "../../public/audio/3.json";
 
 const corresponding = {
   A: "viseme_PP",
@@ -29,6 +29,24 @@ export function Avatar(props) {
   const { scene } = useGLTF("models/avatar.glb");
   const clone = React.useMemo(() => SkeletonUtils.clone(scene), [scene]);
   const { nodes, materials } = useGraph(clone);
+  const { camera } = useThree();
+  const [position, setPosition] = useState();
+
+  useEffect(() => {
+    // Set fixed camera position
+    camera.position.set(
+      0.009717560321996537,
+      -7.5977023380699285,
+      3.83839987900298
+    );
+
+    // Set fixed camera rotation
+    camera.rotation.set(
+      1.1029931132540758,
+      0.0011415966961690726,
+      -0.0022596643170388585
+    );
+  }, [camera]);
 
   // Load animations
   const { animations: idleAnimation } = useFBX(
@@ -57,7 +75,7 @@ export function Avatar(props) {
     const handleKeyPress = (event) => {
       if (event.code === "Space" && !isTalking) {
         setIsTalking((prev) => !prev);
-        setAnimation((prev) => (prev === "Standing" ? "Standing" : "Standing"));
+        setAnimation((prev) => (prev === "Standing" ? "Talking" : "Standing"));
       }
     };
 
@@ -68,7 +86,7 @@ export function Avatar(props) {
   useEffect(() => {
     if (isTalking) {
       // Create and play new audio instance
-      const audio = new Audio("../../public/audio/api_0.wav");
+      const audio = new Audio("../../public/audio/3.wav");
       audioRef.current = audio;
       audio.play().catch((error) => console.error("Audio play failed:", error));
       audio.onended = () => {
@@ -80,8 +98,9 @@ export function Avatar(props) {
 
   useEffect(() => {
     actions[animation]?.reset().fadeIn(0.5).play();
+    group.current.position.set(0, -1.5, 2);
     return () => actions[animation]?.fadeOut(0.5);
-  }, [animation]);
+  }, [actions]);
 
   const lerpMorphTarget = (target, value, speed = 0.1) => {
     clone.traverse((child) => {
