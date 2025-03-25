@@ -55,7 +55,7 @@ export function Avatar(props) {
 
   useEffect(() => {
     const handleKeyPress = (event) => {
-      if (event.code === "Space") {
+      if (event.code === "Space" && !isTalking) {
         setIsTalking((prev) => !prev);
         setAnimation((prev) => (prev === "Standing" ? "Standing" : "Standing"));
       }
@@ -63,7 +63,7 @@ export function Avatar(props) {
 
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, []);
+  }, [isTalking]);
 
   useEffect(() => {
     if (isTalking) {
