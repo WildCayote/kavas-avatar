@@ -38,8 +38,8 @@ export function Avatar(props) {
   idleAnimation[0].name = "Standing";
   talkingAnimation[0].name = "Talking";
 
-  const { actions, mixer } = useAnimations(
-    [...idleAnimation, ...talkingAnimation],
+  const { actions } = useAnimations(
+    [idleAnimation[0], talkingAnimation[0]],
     group
   );
 
@@ -81,7 +81,7 @@ export function Avatar(props) {
   useEffect(() => {
     actions[animation]?.reset().fadeIn(0.5).play();
     return () => actions[animation]?.fadeOut(0.5);
-  }, [animation, actions]);
+  }, [animation]);
 
   const lerpMorphTarget = (target, value, speed = 0.1) => {
     clone.traverse((child) => {
