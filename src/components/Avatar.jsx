@@ -57,7 +57,7 @@ export function Avatar(props) {
     const handleKeyPress = (event) => {
       if (event.code === "Space") {
         setIsTalking((prev) => !prev);
-        setAnimation((prev) => (prev === "Standing" ? "Talking" : "Standing"));
+        setAnimation((prev) => (prev === "Standing" ? "Standing" : "Standing"));
       }
     };
 
@@ -107,6 +107,23 @@ export function Avatar(props) {
         (cue) => currentTime >= cue.start && currentTime <= cue.end
       );
 
+      // Reset all morph targets to 0 before applying the current viseme
+      clone.traverse((child) => {
+        if (child.isSkinnedMesh && child.morphTargetDictionary) {
+          Object.keys(child.morphTargetDictionary).forEach((target) => {
+            const index = child.morphTargetDictionary[target];
+            if (index !== undefined) {
+              child.morphTargetInfluences[index] = THREE.MathUtils.lerp(
+                child.morphTargetInfluences[index],
+                0,
+                0.1
+              );
+            }
+          });
+        }
+      });
+
+      // Apply the current viseme blendshape if one is found
       if (currentCue) {
         lerpMorphTarget(corresponding[currentCue.value], 1, 0.1);
       }
