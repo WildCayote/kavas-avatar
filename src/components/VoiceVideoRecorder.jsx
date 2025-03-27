@@ -2,11 +2,11 @@ import { useEffect, useRef, useState } from "react";
 
 export const VoiceVideoRecorder = () => {
   const [micActive, setMicActive] = useState(false);
-  const barsRef = useRef([]);
+  const circleRef = useRef(null);
+  const rippleRef = useRef(null);
 
   useEffect(() => {
     let audioContext, analyser, microphone, dataArray;
-    const numBars = 30; // Number of bars
 
     const startListening = async () => {
       try {
@@ -16,7 +16,7 @@ export const VoiceVideoRecorder = () => {
         });
         microphone = audioContext.createMediaStreamSource(stream);
         analyser = audioContext.createAnalyser();
-        analyser.fftSize = 64;
+        analyser.fftSize = 32;
         dataArray = new Uint8Array(analyser.frequencyBinCount);
         microphone.connect(analyser);
 
@@ -24,12 +24,19 @@ export const VoiceVideoRecorder = () => {
 
         const animate = () => {
           analyser.getByteFrequencyData(dataArray);
-          barsRef.current.forEach((bar, i) => {
-            if (bar) {
-              const height = (dataArray[i] / 255) * 100; // Normalize height
-              bar.style.height = `${height}%`;
-            }
-          });
+          const volume =
+            dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
+          if (circleRef.current) {
+            const scale = 1 + volume / 300; // Adjust scaling based on volume
+            circleRef.current.style.transform = `scale(${scale})`;
+          }
+
+          if (rippleRef.current) {
+            const opacity = Math.min(0.5 + volume / 600, 1);
+            rippleRef.current.style.opacity = opacity;
+            rippleRef.current.style.transform = `scale(${1.5 + volume / 200})`;
+          }
 
           requestAnimationFrame(animate);
         };
@@ -51,15 +58,8 @@ export const VoiceVideoRecorder = () => {
 
   return (
     <div className="voice-visualizer">
-      <div className="bars">
-        {[...Array(30)].map((_, i) => (
-          <div
-            key={i}
-            className="bar"
-            ref={(el) => (barsRef.current[i] = el)}
-          ></div>
-        ))}
-      </div>
+      <div className="ripple" ref={rippleRef}></div>
+      <div className="circle" ref={circleRef}></div>
     </div>
   );
 };
