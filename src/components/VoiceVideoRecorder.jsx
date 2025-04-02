@@ -4,9 +4,11 @@ export const VoiceVideoRecorder = () => {
   const [micActive, setMicActive] = useState(false);
   const circleRef = useRef(null);
   const rippleRef = useRef(null);
+  const audioBuffer = useRef([]);
+  const ws = useRef(null);
 
   useEffect(() => {
-    let audioContext, analyser, microphone, dataArray;
+    let audioContext, analyser, microphone, dataArray, audioProcessor;
 
     const startListening = async () => {
       try {
@@ -20,6 +22,21 @@ export const VoiceVideoRecorder = () => {
         dataArray = new Uint8Array(analyser.frequencyBinCount);
         microphone.connect(analyser);
 
+        // Set up audio processing
+        audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+        microphone.connect(audioProcessor);
+        audioProcessor.connect(audioContext.destination);
+
+        audioProcessor.onaudioprocess = (event) => {
+          const inputData = event.inputBuffer.getChannelData(0);
+          let buffer = new Int16Array(inputData.length);
+          for (let i = 0; i < inputData.length; i++) {
+            let s = Math.max(-1, Math.min(1, inputData[i]));
+            buffer[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+          }
+          audioBuffer.current.push(buffer);
+        };
+
         setMicActive(true);
 
         const animate = () => {
@@ -28,7 +45,7 @@ export const VoiceVideoRecorder = () => {
             dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
 
           if (circleRef.current) {
-            const scale = 1 + volume / 300; // Adjust scaling based on volume
+            const scale = 1 + volume / 300;
             circleRef.current.style.transform = `scale(${scale})`;
           }
 
@@ -42,9 +59,72 @@ export const VoiceVideoRecorder = () => {
         };
 
         animate();
+
+        // Open WebSocket connection
+        ws.current = new WebSocket("ws://localhost:8004");
+
+        ws.current.onopen = () => {
+          console.log("WebSocket connection established");
+          setupSendInterval();
+        };
+
+        ws.current.onmessage = (event) => {
+          console.log("Received response from server:", event.data);
+        };
+
+        ws.current.onclose = () => {
+          console.log("WebSocket connection closed");
+        };
+
+        ws.current.onerror = (error) => {
+          console.error("WebSocket error:", error);
+        };
       } catch (error) {
         console.error("Microphone access denied:", error);
       }
+    };
+
+    const setupSendInterval = () => {
+      const sendInterval = setInterval(() => {
+        if (!ws.current || ws.current.readyState !== WebSocket.OPEN) return;
+
+        if (audioBuffer.current.length === 0) return;
+        const combinedAudio = combineAudioBuffers(audioBuffer.current);
+        audioBuffer.current = [];
+
+        const audioUint8 = new Uint8Array(combinedAudio.buffer);
+        const audioBase64 = arrayBufferToBase64(audioUint8);
+
+        const payload = {
+          audio: audioBase64,
+        };
+
+        ws.current.send(JSON.stringify(payload));
+        console.log("Sent audio payload");
+      }, 5000);
+
+      return () => clearInterval(sendInterval);
+    };
+
+    const combineAudioBuffers = (buffers) => {
+      let totalLength = buffers.reduce((acc, curr) => acc + curr.length, 0);
+      let result = new Int16Array(totalLength);
+      let offset = 0;
+      buffers.forEach((buf) => {
+        result.set(buf, offset);
+        offset += buf.length;
+      });
+      return result;
+    };
+
+    const arrayBufferToBase64 = (buffer) => {
+      let binary = "";
+      let bytes = new Uint8Array(buffer);
+      let len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
     };
 
     startListening();
@@ -52,6 +132,9 @@ export const VoiceVideoRecorder = () => {
     return () => {
       if (audioContext) {
         audioContext.close();
+      }
+      if (ws.current) {
+        ws.current.close();
       }
     };
   }, []);
