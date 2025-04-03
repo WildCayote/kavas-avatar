@@ -8,6 +8,8 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
   const ws = useRef(null);
   const isListening = useRef(false);
   const isTalkingRef = useRef(isTalking);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
 
   useEffect(() => {
     isTalkingRef.current = isTalking;
@@ -41,16 +43,21 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
     // stop listening
     isListening.current = false;
     setMicActive(false);
+    if (videoStream) {
+      videoStream.getTracks().forEach((track) => track.stop());
+    }
   };
 
   useEffect(() => {
     let audioContext, analyser, microphone, dataArray, audioProcessor;
+    let videoStream;
 
     const startListening = async () => {
       try {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
+          video: true,
         });
         microphone = audioContext.createMediaStreamSource(stream);
         analyser = audioContext.createAnalyser();
@@ -97,8 +104,12 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
 
         animate();
 
+        // Set up video stream
+        videoRef.current.srcObject = stream;
+        videoStream = stream;
+
         // Open WebSocket connection
-        ws.current = new WebSocket("ws://localhost:8004");
+        ws.current = new WebSocket("ws://localhost:8004/ws/media");
 
         ws.current.onopen = () => {
           console.log("WebSocket connection established");
@@ -125,7 +136,7 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
           console.error("WebSocket error:", error);
         };
       } catch (error) {
-        console.error("Microphone access denied:", error);
+        console.error("Microphone or camera access denied:", error);
       }
     };
 
@@ -145,12 +156,16 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
         const audioUint8 = new Uint8Array(combinedAudio.buffer);
         const audioBase64 = arrayBufferToBase64(audioUint8);
 
+        // Capture video frame
+        const videoBase64 = captureVideoFrame();
+
         const payload = {
           audio: audioBase64,
+          video: videoBase64,
         };
 
         ws.current.send(JSON.stringify(payload));
-        console.log("Sent audio payload");
+        console.log("Sent audio and video payload");
       }, 5000);
 
       return () => clearInterval(sendInterval);
@@ -177,6 +192,12 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
       return window.btoa(binary);
     };
 
+    const captureVideoFrame = () => {
+      const context = canvasRef.current.getContext("2d");
+      context.drawImage(videoRef.current, 0, 0, 640, 480);
+      return canvasRef.current.toDataURL("image/jpeg").split(",")[1];
+    };
+
     const stopListening = () => {
       isListening.current = false;
       if (audioProcessor) {
@@ -186,6 +207,9 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
         audioContext.close();
       }
       setMicActive(false);
+      if (videoStream) {
+        videoStream.getTracks().forEach((track) => track.stop());
+      }
     };
 
     if (!isTalkingRef.current) {
@@ -201,6 +225,9 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
         audioContext.close();
       }
       setMicActive(false);
+      if (videoStream) {
+        videoStream.getTracks().forEach((track) => track.stop());
+      }
     };
   }, []);
 
@@ -208,6 +235,13 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
     <div className="voice-visualizer">
       <div className="ripple" ref={rippleRef}></div>
       <div className="circle" ref={circleRef}></div>
+      <video ref={videoRef} style={{ opacity: 0 }} autoPlay muted playsInline />
+      <canvas
+        ref={canvasRef}
+        style={{ display: "none" }}
+        width={640}
+        height={480}
+      />
     </div>
   );
 };
