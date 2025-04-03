@@ -11,6 +11,8 @@
   "dependencies": {
     "@react-three/drei": "^10.0.3",
     "@react-three/fiber": "^9.0.4",
+    "@ricky0123/vad-web": "^0.0.22",
+    "onnxruntime-web": "^1.21.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "three": "^0.173.0"

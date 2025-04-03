@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MicVAD } from "@ricky0123/vad-web";
 
 export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
   const [micActive, setMicActive] = useState(false);
@@ -10,6 +11,56 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
   const isTalkingRef = useRef(isTalking);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+
+  const vadRef = useRef(null);
+
+  useEffect(() => {
+    const captureVideoFrame = () => {
+      const context = canvasRef.current.getContext("2d");
+      context.drawImage(videoRef.current, 0, 0, 640, 480);
+      return canvasRef.current.toDataURL("image/jpeg").split(",")[1];
+    };
+
+    function float32ToBase64(float32Array) {
+      const buffer = new ArrayBuffer(float32Array.length * 2); // 16-bit PCM
+      const view = new DataView(buffer);
+      for (let i = 0; i < float32Array.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32Array[i]));
+        view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); // little-endian
+      }
+      const uint8Array = new Uint8Array(buffer);
+      return btoa(String.fromCharCode(...uint8Array));
+    }
+
+    const setupVad = async () => {
+      vadRef.current = await MicVAD.new({
+        onSpeechStart: () => {
+          console.log("Speech start detected");
+        },
+        onSpeechEnd: (audio) => {
+          let result = float32ToBase64(audio);
+          // capture the picture
+          const videoBase64 = captureVideoFrame();
+
+          const payload = {
+            audio: result,
+            video: videoBase64,
+          };
+
+          ws.current.send(JSON.stringify(payload));
+          console.log("Sent audio and video payload");
+        },
+      });
+
+      vadRef.current.start();
+    };
+
+    setupVad();
+
+    return () => {
+      vadRef.current?.pause();
+    };
+  }, []);
 
   useEffect(() => {
     isTalkingRef.current = isTalking;
@@ -113,7 +164,7 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
 
         ws.current.onopen = () => {
           console.log("WebSocket connection established");
-          setupSendInterval();
+          // setupSendInterval();
         };
 
         ws.current.onmessage = (event) => {
