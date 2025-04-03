@@ -16,7 +16,12 @@ const corresponding = {
   X: "viseme_PP",
 };
 
-export function Avatar({ audioUrl, lipsyncData }) {
+export function Avatar({
+  audioUrl,
+  lipsyncData,
+  onFinishedTalking,
+  isTalking,
+}) {
   const group = useRef();
   const { scene } = useGLTF("models/avatar.glb");
   const clone = React.useMemo(() => SkeletonUtils.clone(scene), [scene]);
@@ -30,7 +35,6 @@ export function Avatar({ audioUrl, lipsyncData }) {
   // Store mouth cues and audio reference
   const [mouthCues, setMouthCues] = useState([]);
   const audioRef = useRef(null);
-  const [isTalking, setIsTalking] = useState(false);
   const [animation, setAnimation] = useState("Standing");
 
   useEffect(() => {
@@ -40,8 +44,7 @@ export function Avatar({ audioUrl, lipsyncData }) {
   }, [lipsyncData]);
 
   useEffect(() => {
-    if (audioUrl && !isTalking) {
-      setIsTalking(true);
+    if (audioUrl && isTalking) {
       setAnimation("Talking");
 
       // Create and play new audio instance
@@ -49,11 +52,13 @@ export function Avatar({ audioUrl, lipsyncData }) {
       audioRef.current = audio;
       audio.play().catch((error) => console.error("Audio play failed:", error));
       audio.onended = () => {
-        setIsTalking(false);
         setAnimation("Standing");
+        if (onFinishedTalking) {
+          onFinishedTalking();
+        }
       };
     }
-  }, [audioUrl, isTalking]);
+  }, [audioUrl, isTalking, onFinishedTalking]);
 
   useEffect(() => {
     actions[animation]?.reset().fadeIn(0.5).play();

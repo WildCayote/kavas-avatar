@@ -1,11 +1,47 @@
 import { useEffect, useRef, useState } from "react";
 
-export const VoiceVideoRecorder = ({ onAudioReceived }) => {
+export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
   const [micActive, setMicActive] = useState(false);
   const circleRef = useRef(null);
   const rippleRef = useRef(null);
   const audioBuffer = useRef([]);
   const ws = useRef(null);
+  const isListening = useRef(false);
+  const isTalkingRef = useRef(isTalking);
+
+  useEffect(() => {
+    isTalkingRef.current = isTalking;
+  }, [isTalking]);
+
+  const base64ToBlob = (base64, contentType) => {
+    const byteCharacters = atob(base64);
+    const byteArrays = [];
+
+    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+      const slice = byteCharacters.slice(offset, offset + 512);
+
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+
+    return new Blob(byteArrays, { type: contentType });
+  };
+
+  const handleAudioReceived = (audioBase64, lipsyncData) => {
+    console.log("I am calling the audio handler");
+    const audioBlob = base64ToBlob(audioBase64, "audio/wav");
+    const audioUrl = URL.createObjectURL(audioBlob);
+    onAudioReceived(audioUrl, lipsyncData);
+
+    // stop listening
+    isListening.current = false;
+    setMicActive(false);
+  };
 
   useEffect(() => {
     let audioContext, analyser, microphone, dataArray, audioProcessor;
@@ -38,6 +74,7 @@ export const VoiceVideoRecorder = ({ onAudioReceived }) => {
         };
 
         setMicActive(true);
+        isListening.current = true;
 
         const animate = () => {
           analyser.getByteFrequencyData(dataArray);
@@ -61,7 +98,7 @@ export const VoiceVideoRecorder = ({ onAudioReceived }) => {
         animate();
 
         // Open WebSocket connection
-        ws.current = new WebSocket("ws://localhost:8004/ws/media");
+        ws.current = new WebSocket("ws://localhost:8004");
 
         ws.current.onopen = () => {
           console.log("WebSocket connection established");
@@ -69,6 +106,10 @@ export const VoiceVideoRecorder = ({ onAudioReceived }) => {
         };
 
         ws.current.onmessage = (event) => {
+          console.log("Is the avatar talking: ", isTalkingRef.current);
+          if (isTalkingRef.current) {
+            return;
+          }
           console.log("Received response from server:", event.data);
           const response = JSON.parse(event.data);
           if (response.audio && response.lipsync) {
@@ -90,7 +131,12 @@ export const VoiceVideoRecorder = ({ onAudioReceived }) => {
 
     const setupSendInterval = () => {
       const sendInterval = setInterval(() => {
-        if (!ws.current || ws.current.readyState !== WebSocket.OPEN) return;
+        if (
+          isTalkingRef.current ||
+          !ws.current ||
+          ws.current.readyState !== WebSocket.OPEN
+        )
+          return;
 
         if (audioBuffer.current.length === 0) return;
         const combinedAudio = combineAudioBuffers(audioBuffer.current);
@@ -131,52 +177,32 @@ export const VoiceVideoRecorder = ({ onAudioReceived }) => {
       return window.btoa(binary);
     };
 
-    const handleAudioReceived = (audioBase64, lipsyncData) => {
-      const audioBlob = base64ToBlob(audioBase64, "audio/wav");
-      const audioUrl = URL.createObjectURL(audioBlob);
-      onAudioReceived(audioUrl, lipsyncData);
-      stopListening();
-    };
-
-    const base64ToBlob = (base64, contentType) => {
-      const byteCharacters = atob(base64);
-      const byteArrays = [];
-
-      for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-        const slice = byteCharacters.slice(offset, offset + 512);
-
-        const byteNumbers = new Array(slice.length);
-        for (let i = 0; i < slice.length; i++) {
-          byteNumbers[i] = slice.charCodeAt(i);
-        }
-
-        const byteArray = new Uint8Array(byteNumbers);
-        byteArrays.push(byteArray);
-      }
-
-      const blob = new Blob(byteArrays, { type: contentType });
-      return blob;
-    };
-
     const stopListening = () => {
+      isListening.current = false;
       if (audioProcessor) {
         audioProcessor.disconnect();
       }
       if (audioContext) {
         audioContext.close();
       }
-      if (ws.current) {
-        ws.current.close();
-      }
       setMicActive(false);
     };
 
-    startListening();
+    if (!isTalkingRef.current) {
+      startListening();
+    }
 
     return () => {
-      stopListening();
+      isListening.current = false;
+      if (audioProcessor) {
+        audioProcessor.disconnect();
+      }
+      if (audioContext) {
+        audioContext.close();
+      }
+      setMicActive(false);
     };
-  }, [onAudioReceived]);
+  }, []);
 
   return (
     <div className="voice-visualizer">

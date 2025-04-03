@@ -1,10 +1,14 @@
 import { OrbitControls } from "@react-three/drei";
 import { Avatar } from "./Avatar";
 
-export const Experience = ({ audioData }) => {
+export const Experience = ({
+  audioData,
+  onAvatarFinishedTalking,
+  isTalking,
+}) => {
   return (
     <>
-      <OrbitControls />
+      {/* <OrbitControls /> */}
       <group
         position-y={0.7}
         position-x={0}
@@ -14,6 +18,8 @@ export const Experience = ({ audioData }) => {
         <Avatar
           audioUrl={audioData.audioUrl}
           lipsyncData={audioData.lipsyncData}
+          onFinishedTalking={onAvatarFinishedTalking}
+          isTalking={isTalking}
         />
       </group>
       <ambientLight intensity={2.3} />
