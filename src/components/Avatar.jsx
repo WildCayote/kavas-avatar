@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useFrame, useGraph, useThree } from "@react-three/fiber";
-import { useAnimations, useFBX, useGLTF } from "@react-three/drei";
+import { useAnimations, useGLTF } from "@react-three/drei";
 import { SkeletonUtils } from "three-stdlib";
 import * as THREE from "three";
-import visemeQueue from "../../public/audio/3.json";
 
 const corresponding = {
   A: "viseme_PP",
@@ -17,7 +16,7 @@ const corresponding = {
   X: "viseme_PP",
 };
 
-export function Avatar(props) {
+export function Avatar({ audioUrl, lipsyncData }) {
   const group = useRef();
   const { scene } = useGLTF("models/avatar.glb");
   const clone = React.useMemo(() => SkeletonUtils.clone(scene), [scene]);
@@ -35,25 +34,18 @@ export function Avatar(props) {
   const [animation, setAnimation] = useState("Standing");
 
   useEffect(() => {
-    setMouthCues(visemeQueue["mouthCues"]);
-  }, []);
+    if (lipsyncData) {
+      setMouthCues(lipsyncData.mouthCues);
+    }
+  }, [lipsyncData]);
 
   useEffect(() => {
-    const handleKeyPress = (event) => {
-      if (event.code === "Space" && !isTalking) {
-        setIsTalking((prev) => !prev);
-        setAnimation((prev) => (prev === "Standing" ? "Talking" : "Standing"));
-      }
-    };
+    if (audioUrl && !isTalking) {
+      setIsTalking(true);
+      setAnimation("Talking");
 
-    window.addEventListener("keydown", handleKeyPress);
-    return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [isTalking]);
-
-  useEffect(() => {
-    if (isTalking) {
       // Create and play new audio instance
-      const audio = new Audio("../../public/audio/3.wav");
+      const audio = new Audio(audioUrl);
       audioRef.current = audio;
       audio.play().catch((error) => console.error("Audio play failed:", error));
       audio.onended = () => {
@@ -61,7 +53,7 @@ export function Avatar(props) {
         setAnimation("Standing");
       };
     }
-  }, [isTalking]);
+  }, [audioUrl, isTalking]);
 
   useEffect(() => {
     actions[animation]?.reset().fadeIn(0.5).play();
@@ -117,7 +109,7 @@ export function Avatar(props) {
   });
 
   return (
-    <group {...props} ref={group} dispose={null}>
+    <group ref={group} dispose={null}>
       <group rotation-x={-Math.PI / 2}>
         <primitive object={nodes.Hips} />
         <skinnedMesh

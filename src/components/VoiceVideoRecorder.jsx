@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export const VoiceVideoRecorder = () => {
+export const VoiceVideoRecorder = ({ onAudioReceived }) => {
   const [micActive, setMicActive] = useState(false);
   const circleRef = useRef(null);
   const rippleRef = useRef(null);
@@ -61,7 +61,7 @@ export const VoiceVideoRecorder = () => {
         animate();
 
         // Open WebSocket connection
-        ws.current = new WebSocket("ws://localhost:8004");
+        ws.current = new WebSocket("ws://localhost:8004/ws/media");
 
         ws.current.onopen = () => {
           console.log("WebSocket connection established");
@@ -70,6 +70,10 @@ export const VoiceVideoRecorder = () => {
 
         ws.current.onmessage = (event) => {
           console.log("Received response from server:", event.data);
+          const response = JSON.parse(event.data);
+          if (response.audio && response.lipsync) {
+            handleAudioReceived(response.audio, response.lipsync);
+          }
         };
 
         ws.current.onclose = () => {
@@ -127,17 +131,52 @@ export const VoiceVideoRecorder = () => {
       return window.btoa(binary);
     };
 
-    startListening();
+    const handleAudioReceived = (audioBase64, lipsyncData) => {
+      const audioBlob = base64ToBlob(audioBase64, "audio/wav");
+      const audioUrl = URL.createObjectURL(audioBlob);
+      onAudioReceived(audioUrl, lipsyncData);
+      stopListening();
+    };
 
-    return () => {
+    const base64ToBlob = (base64, contentType) => {
+      const byteCharacters = atob(base64);
+      const byteArrays = [];
+
+      for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+        const slice = byteCharacters.slice(offset, offset + 512);
+
+        const byteNumbers = new Array(slice.length);
+        for (let i = 0; i < slice.length; i++) {
+          byteNumbers[i] = slice.charCodeAt(i);
+        }
+
+        const byteArray = new Uint8Array(byteNumbers);
+        byteArrays.push(byteArray);
+      }
+
+      const blob = new Blob(byteArrays, { type: contentType });
+      return blob;
+    };
+
+    const stopListening = () => {
+      if (audioProcessor) {
+        audioProcessor.disconnect();
+      }
       if (audioContext) {
         audioContext.close();
       }
       if (ws.current) {
         ws.current.close();
       }
+      setMicActive(false);
     };
-  }, []);
+
+    startListening();
+
+    return () => {
+      stopListening();
+    };
+  }, [onAudioReceived]);
 
   return (
     <div className="voice-visualizer">
