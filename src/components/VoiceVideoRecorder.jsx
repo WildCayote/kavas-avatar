@@ -3,16 +3,17 @@ import { MicVAD } from "@ricky0123/vad-web";
 
 export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
   const [micActive, setMicActive] = useState(false);
-  const [isThinking, setThinking] = useState(false);
   const circleRef = useRef(null);
   const rippleRef = useRef(null);
-  const audioBuffer = useRef([]);
   const ws = useRef(null);
   const isListening = useRef(false);
   const isTalkingRef = useRef(isTalking);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const vadRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const isWaitingForResponse = useRef(false);
 
   useEffect(() => {
     isTalkingRef.current = isTalking;
@@ -24,12 +25,10 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
 
     for (let offset = 0; offset < byteCharacters.length; offset += 512) {
       const slice = byteCharacters.slice(offset, offset + 512);
-
       const byteNumbers = new Array(slice.length);
       for (let i = 0; i < slice.length; i++) {
         byteNumbers[i] = slice.charCodeAt(i);
       }
-
       const byteArray = new Uint8Array(byteNumbers);
       byteArrays.push(byteArray);
     }
@@ -38,31 +37,207 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
   };
 
   const handleAudioReceived = (audioBase64, lipsyncData) => {
-    console.log("I am calling the audio handler");
+    console.log("Audio handler called");
     const audioBlob = base64ToBlob(audioBase64, "audio/wav");
     const audioUrl = URL.createObjectURL(audioBlob);
     onAudioReceived(audioUrl, lipsyncData);
+    isWaitingForResponse.current = false;
+  };
 
-    // stop listening
-    isListening.current = false;
-    setMicActive(false);
-    if (videoStream) {
-      videoStream.getTracks().forEach((track) => track.stop());
+  const getSupportedMimeType = () => {
+    const types = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+      "audio/ogg",
+      "audio/wav",
+      "", // Empty string will use browser default
+    ];
+
+    for (const type of types) {
+      if (type === "" || MediaRecorder.isTypeSupported(type)) {
+        console.log("Using MIME type:", type || "browser default");
+        return type;
+      }
+    }
+    return "";
+  };
+
+  const startRecording = () => {
+    if (
+      !mediaStreamRef.current ||
+      isWaitingForResponse.current ||
+      isTalkingRef.current
+    ) {
+      return;
+    }
+
+    try {
+      // Get only the audio track for recording
+      const audioTrack = mediaStreamRef.current.getAudioTracks()[0];
+      const audioStream = new MediaStream([audioTrack]);
+
+      const options = {
+        audioBitsPerSecond: 128000,
+      };
+
+      const mimeType = getSupportedMimeType();
+      if (mimeType) {
+        options.mimeType = mimeType;
+      }
+
+      const mediaRecorder = new MediaRecorder(audioStream, options);
+      const chunks = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        if (chunks.length === 0) return;
+
+        try {
+          // Convert to WAV
+          const audioContext = new (window.AudioContext ||
+            window.webkitAudioContext)();
+          const blob = new Blob(chunks, {
+            type: mediaRecorder.mimeType || "audio/webm",
+          });
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+          // Create WAV file
+          const wavBuffer = audioBufferToWav(audioBuffer);
+          const wavBlob = new Blob([wavBuffer], { type: "audio/wav" });
+
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64Audio = reader.result.split(",")[1];
+            const videoBase64 = captureVideoFrame();
+
+            if (ws.current?.readyState === WebSocket.OPEN) {
+              ws.current.send(
+                JSON.stringify({
+                  audio: base64Audio,
+                  video: videoBase64,
+                })
+              );
+              console.log("Sent audio and video payload");
+              isWaitingForResponse.current = true;
+            }
+          };
+
+          reader.readAsDataURL(wavBlob);
+          audioContext.close();
+        } catch (error) {
+          console.error("Error processing audio:", error);
+        }
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(100); // Collect data every 100ms for smooth recording
+      setMicActive(true);
+      isListening.current = true;
+    } catch (error) {
+      console.error("Failed to start recording:", error);
     }
   };
 
+  const initializeMediaStream = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 44100,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: true,
+      });
+      mediaStreamRef.current = stream;
+      return stream;
+    } catch (error) {
+      console.error("Failed to get media stream:", error);
+      return null;
+    }
+  };
+
+  // Function to convert AudioBuffer to WAV format
+  const audioBufferToWav = (audioBuffer) => {
+    const numOfChan = audioBuffer.numberOfChannels;
+    const length = audioBuffer.length * numOfChan * 2;
+    const buffer = new ArrayBuffer(44 + length);
+    const view = new DataView(buffer);
+    const channels = [];
+    let sample = 0;
+    let offset = 0;
+    let pos = 0;
+
+    // Write WAV header
+    setUint32(0x46464952); // "RIFF"
+    setUint32(length + 36); // Length
+    setUint32(0x45564157); // "WAVE"
+    setUint32(0x20746d66); // "fmt "
+    setUint32(16); // Length of format chunk
+    setUint16(1); // Format type (PCM)
+    setUint16(numOfChan); // Number of channels
+    setUint32(audioBuffer.sampleRate); // Sample rate
+    setUint32(audioBuffer.sampleRate * 2 * numOfChan); // Byte rate
+    setUint16(numOfChan * 2); // Block align
+    setUint16(16); // Bits per sample
+    setUint32(0x61746164); // "data"
+    setUint32(length); // Data length
+
+    // Write interleaved audio data
+    for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
+      channels.push(audioBuffer.getChannelData(i));
+    }
+
+    while (pos < audioBuffer.length) {
+      for (let i = 0; i < numOfChan; i++) {
+        sample = Math.max(-1, Math.min(1, channels[i][pos]));
+        sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        view.setInt16(44 + offset, sample, true);
+        offset += 2;
+      }
+      pos++;
+    }
+
+    return buffer;
+
+    function setUint16(data) {
+      view.setUint16(pos, data, true);
+      pos += 2;
+    }
+
+    function setUint32(data) {
+      view.setUint32(pos, data, true);
+      pos += 4;
+    }
+  };
+
+  const stopRecording = () => {
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state === "recording"
+    ) {
+      mediaRecorderRef.current.stop();
+      setMicActive(false);
+      isListening.current = false;
+    }
+  };
+
+  const captureVideoFrame = () => {
+    const context = canvasRef.current.getContext("2d");
+    context.drawImage(videoRef.current, 0, 0, 640, 480);
+    return canvasRef.current.toDataURL("image/jpeg").split(",")[1];
+  };
+
   useEffect(() => {
-    let audioContext, analyser, microphone, dataArray, audioProcessor;
-    let videoStream;
-
-    const captureVideoFrame = () => {
-      const context = canvasRef.current.getContext("2d");
-      context.drawImage(videoRef.current, 0, 0, 640, 480);
-      return canvasRef.current.toDataURL("image/jpeg").split(",")[1];
-    };
-
     const setUpWs = () => {
-      // Open WebSocket connection
       ws.current = new WebSocket("ws://localhost:8004/ws/media");
 
       ws.current.onopen = () => {
@@ -70,18 +245,18 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
       };
 
       ws.current.onmessage = (event) => {
-        console.log("Is the avatar talking: ", isTalkingRef.current);
-        if (isTalkingRef.current) {
+        if (event.data === "thinking") {
+          console.log("Cannot listen now");
           return;
         }
-        console.log("Received response from server:", event.data);
-        if (event.data == "thinking") {
-          console.log("can not listen now");
-        } else {
+
+        try {
           const response = JSON.parse(event.data);
           if (response.audio && response.lipsync) {
             handleAudioReceived(response.audio, response.lipsync);
           }
+        } catch (error) {
+          console.error("Error processing websocket message:", error);
         }
       };
 
@@ -94,159 +269,73 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
       };
     };
 
-    const arrayBufferToBase64 = (buffer) => {
-      let binary = "";
-      let bytes = new Uint8Array(buffer);
-      let len = bytes.byteLength;
-      for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-      }
-      return window.btoa(binary);
-    };
-
-    const combineAudioBuffers = (buffers) => {
-      let totalLength = buffers.reduce((acc, curr) => acc + curr.length, 0);
-      let result = new Int16Array(totalLength);
-      let offset = 0;
-      buffers.forEach((buf) => {
-        result.set(buf, offset);
-        offset += buf.length;
-      });
-      return result;
-    };
-
-    const startListening = async () => {
+    const setupVad = async () => {
       try {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: true,
-        });
-
-        // Ensure videoRef is not null
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
+        if (!mediaStreamRef.current) {
+          const stream = await initializeMediaStream();
+          if (!stream) return;
         }
 
-        microphone = audioContext.createMediaStreamSource(stream);
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = 32;
-        dataArray = new Uint8Array(analyser.frequencyBinCount);
-        microphone.connect(analyser);
+        vadRef.current = await MicVAD.new({
+          onSpeechStart: () => {
+            if (!isWaitingForResponse.current && !isTalkingRef.current) {
+              startRecording();
+              console.log("Speech start detected");
+            }
+          },
+          onSpeechEnd: () => {
+            console.log("Speech end detected");
+            stopRecording();
+          },
+        });
 
-        // Set up audio processing
-        audioProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-        microphone.connect(audioProcessor);
-        audioProcessor.connect(audioContext.destination);
-
-        audioProcessor.onaudioprocess = (event) => {
-          const inputData = event.inputBuffer.getChannelData(0);
-          let buffer = new Int16Array(inputData.length);
-          for (let i = 0; i < inputData.length; i++) {
-            let s = Math.max(-1, Math.min(1, inputData[i]));
-            buffer[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-          audioBuffer.current.push(buffer);
-        };
-
-        setMicActive(true);
-        isListening.current = true;
-
-        const animate = () => {
-          analyser.getByteFrequencyData(dataArray);
-          const volume =
-            dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-
-          if (circleRef.current) {
-            const scale = 1 + volume / 300;
-            circleRef.current.style.transform = `scale(${scale})`;
-          }
-
-          if (rippleRef.current) {
-            const opacity = Math.min(0.5 + volume / 600, 1);
-            rippleRef.current.style.opacity = opacity;
-            rippleRef.current.style.transform = `scale(${1.5 + volume / 200})`;
-          }
-
-          requestAnimationFrame(animate);
-        };
-
-        animate();
-
-        // Set up video stream
-        videoStream = stream;
+        vadRef.current.start();
       } catch (error) {
-        console.error("Microphone or camera access denied:", error);
+        console.error("Failed to setup VAD:", error);
       }
-    };
-
-    const stopListening = () => {
-      isListening.current = false;
-      if (audioProcessor) {
-        audioProcessor.disconnect();
-      }
-      if (audioContext) {
-        audioContext.close();
-      }
-      setMicActive(false);
-      if (videoStream) {
-        videoStream.getTracks().forEach((track) => track.stop());
-      }
-    };
-
-    const setupVad = async () => {
-      vadRef.current = await MicVAD.new({
-        onSpeechStart: () => {
-          startListening();
-          console.log("Speech start detected");
-        },
-        onSpeechEnd: (audio) => {
-          console.log("Is talking in Voice Recorder: ", isTalkingRef.current);
-          if (audioBuffer.current.length === 0 || isTalkingRef.current) return;
-          const combinedAudio = combineAudioBuffers(audioBuffer.current);
-          audioBuffer.current = [];
-
-          const audioUint8 = new Uint8Array(combinedAudio.buffer);
-          const audioBase64 = arrayBufferToBase64(audioUint8);
-          // Capture the picture
-          const videoBase64 = captureVideoFrame();
-
-          console.log(audioBuffer);
-
-          const payload = {
-            audio: audioBase64,
-            video: videoBase64,
-          };
-
-          ws.current.send(JSON.stringify(payload));
-          console.log("Sent audio and video payload");
-          stopListening();
-        },
-      });
-
-      vadRef.current.start();
     };
 
     setUpWs();
-    startListening();
-    stopListening();
     setupVad();
 
     return () => {
-      isListening.current = false;
-      if (audioProcessor) {
-        audioProcessor.disconnect();
+      if (mediaRecorderRef.current) {
+        mediaRecorderRef.current.state === "recording" &&
+          mediaRecorderRef.current.stop();
       }
-      if (audioContext) {
-        audioContext.close();
-      }
-      setMicActive(false);
-      if (videoStream) {
-        videoStream.getTracks().forEach((track) => track.stop());
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
       }
       vadRef.current?.pause();
+      if (ws.current) {
+        ws.current.close();
+      }
     };
   }, []);
+
+  useEffect(() => {
+    if (micActive) {
+      const animate = () => {
+        if (!isListening.current) return;
+
+        // Simple animation based on whether mic is active
+        if (circleRef.current) {
+          const scale = micActive ? 1.2 : 1;
+          circleRef.current.style.transform = `scale(${scale})`;
+        }
+
+        if (rippleRef.current) {
+          const opacity = micActive ? 0.6 : 0;
+          rippleRef.current.style.opacity = opacity;
+          rippleRef.current.style.transform = `scale(${micActive ? 1.5 : 1})`;
+        }
+
+        requestAnimationFrame(animate);
+      };
+
+      animate();
+    }
+  }, [micActive]);
 
   return (
     <div className="voice-visualizer">
