@@ -238,7 +238,9 @@ export const VoiceVideoRecorder = ({ onAudioReceived, isTalking }) => {
 
   useEffect(() => {
     const setUpWs = () => {
-      ws.current = new WebSocket("ws://localhost:8004/ws/media");
+      ws.current = new WebSocket(
+        process.env.WEBSOCKET_URL || "ws://localhost:8004/ws/media"
+      );
 
       ws.current.onopen = () => {
         console.log("WebSocket connection established");
